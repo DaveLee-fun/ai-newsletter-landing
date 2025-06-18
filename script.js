@@ -2,17 +2,16 @@
 const SUPABASE_URL = 'https://dcwnogwgzlrmaeapokfe.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRjd25vZ3dnemxybWFlYXBva2ZlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTAyMjMwODEsImV4cCI6MjA2NTc5OTA4MX0.sWT73zGFfVnUzIFTVRKXajOWpQTYCBDuK_iYGM9JFVE';
 
-// Supabase 클라이언트 초기화
-const { createClient } = supabase;
-const supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+// Supabase 클라이언트 초기화 (DOM 로드 후)
+let supabaseClient = null;
 
-// DOM 요소 참조
-const subscriptionForm = document.getElementById('subscriptionForm');
-const emailInput = document.getElementById('email');
-const submitBtn = document.getElementById('submitBtn');
-const btnText = document.querySelector('.btn-text');
-const btnLoading = document.querySelector('.btn-loading');
-const successMessage = document.getElementById('successMessage');
+// DOM 요소 참조 (페이지 로드 후에 설정)
+let subscriptionForm = null;
+let emailInput = null;
+let submitBtn = null;
+let btnText = null;
+let btnLoading = null;
+let successMessage = null;
 
 // 이메일 유효성 검사 함수
 function isValidEmail(email) {
@@ -79,6 +78,13 @@ function showErrorMessage(message) {
 // 이메일 구독 처리 함수
 async function handleSubscription(email) {
     try {
+        // Supabase 클라이언트 확인
+        if (!supabaseClient) {
+            throw new Error('데이터베이스 연결에 문제가 있습니다. 페이지를 새로고침해주세요.');
+        }
+
+        console.log('구독 요청 시작:', email);
+
         // Supabase에 이메일 저장
         const { data, error } = await supabaseClient
             .from('newsletter_subscribers')
@@ -92,24 +98,49 @@ async function handleSubscription(email) {
             .select();
 
         if (error) {
-            // 중복 이메일 체크
-            if (error.code === '23505') {
+            console.error('Supabase 오류:', error);
+            
+            // 중복 이메일 체크 (PostgreSQL unique constraint violation)
+            if (error.code === '23505' || error.message?.includes('duplicate')) {
                 throw new Error('이미 구독된 이메일 주소입니다.');
             }
-            throw new Error('구독 처리 중 오류가 발생했습니다. 다시 시도해주세요.');
+            
+            // 네트워크 오류 체크
+            if (error.message?.includes('network') || error.message?.includes('fetch')) {
+                throw new Error('네트워크 연결에 문제가 있습니다. 인터넷 연결을 확인해주세요.');
+            }
+            
+            // 권한 오류 체크
+            if (error.code === '42501' || error.message?.includes('permission')) {
+                throw new Error('데이터베이스 권한 오류가 발생했습니다. 관리자에게 문의해주세요.');
+            }
+            
+            throw new Error(`구독 처리 중 오류가 발생했습니다: ${error.message}`);
         }
 
         console.log('구독 성공:', data);
         return true;
     } catch (error) {
         console.error('구독 오류:', error);
+        
+        // TypeError 등 예기치 않은 오류 처리
+        if (error.name === 'TypeError') {
+            throw new Error('구독 처리 중 기술적 오류가 발생했습니다. 페이지를 새로고침한 후 다시 시도해주세요.');
+        }
+        
         throw error;
     }
 }
 
-// 폼 제출 이벤트 리스너
-subscriptionForm.addEventListener('submit', async (e) => {
+// 폼 제출 핸들러 함수
+async function handleFormSubmit(e) {
     e.preventDefault();
+    
+    if (!emailInput || !supabaseClient) {
+        console.error('필수 요소가 초기화되지 않았습니다.');
+        showErrorMessage('페이지를 새로고침한 후 다시 시도해주세요.');
+        return;
+    }
     
     const email = emailInput.value.trim();
     
@@ -148,25 +179,30 @@ subscriptionForm.addEventListener('submit', async (e) => {
         // 로딩 종료
         toggleLoading(false);
     }
-});
+}
 
-// CTA 폼 연동
-const ctaEmail = document.getElementById('ctaEmail');
-const ctaSubmit = document.getElementById('ctaSubmit');
+// CTA 폼 초기화 함수
+function initializeCTAForm() {
+    const ctaEmail = document.getElementById('ctaEmail');
+    const ctaSubmit = document.getElementById('ctaSubmit');
 
-if (ctaEmail && ctaSubmit) {
-    ctaSubmit.addEventListener('click', () => {
-        const email = ctaEmail.value.trim();
-        if (email) {
-            emailInput.value = email;
-            // 메인 폼으로 스크롤
-            subscriptionForm.scrollIntoView({ behavior: 'smooth' });
-            // 메인 폼의 이메일 입력 필드에 포커스
-            setTimeout(() => {
-                emailInput.focus();
-            }, 500);
-        }
-    });
+    if (ctaEmail && ctaSubmit) {
+        ctaSubmit.addEventListener('click', () => {
+            const email = ctaEmail.value.trim();
+            if (email && emailInput && subscriptionForm) {
+                emailInput.value = email;
+                // 메인 폼으로 스크롤
+                subscriptionForm.scrollIntoView({ behavior: 'smooth' });
+                // 메인 폼의 이메일 입력 필드에 포커스
+                setTimeout(() => {
+                    emailInput.focus();
+                }, 500);
+            }
+        });
+
+        // CTA 이메일 입력 검증
+        ctaEmail.addEventListener('input', (e) => validateEmailInput(e.target));
+    }
 }
 
 // 실시간 이메일 입력 검증
@@ -183,20 +219,59 @@ function validateEmailInput(input) {
     }
 }
 
-emailInput.addEventListener('input', (e) => validateEmailInput(e.target));
-if (ctaEmail) {
-    ctaEmail.addEventListener('input', (e) => validateEmailInput(e.target));
-}
+// 기존 이벤트 리스너들은 DOMContentLoaded에서 처리됨
 
-// 엔터 키 이벤트 리스너
-emailInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') {
-        subscriptionForm.dispatchEvent(new Event('submit'));
-    }
-});
-
-// 페이지 로드 시 애니메이션 효과
+// 페이지 로드 시 초기화 및 애니메이션 효과
 document.addEventListener('DOMContentLoaded', () => {
+    // Supabase 클라이언트 초기화
+    try {
+        if (typeof supabase !== 'undefined') {
+            const { createClient } = supabase;
+            supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            console.log('Supabase 클라이언트 초기화 완료');
+        } else {
+            console.error('Supabase 라이브러리가 로드되지 않았습니다.');
+        }
+    } catch (error) {
+        console.error('Supabase 초기화 오류:', error);
+    }
+
+    // DOM 요소 참조 설정
+    subscriptionForm = document.getElementById('subscriptionForm');
+    emailInput = document.getElementById('email');
+    submitBtn = document.getElementById('submitBtn');
+    btnText = document.querySelector('.btn-text');
+    btnLoading = document.querySelector('.btn-loading');
+    successMessage = document.getElementById('successMessage');
+
+    // DOM 요소 존재 확인
+    if (!subscriptionForm || !emailInput || !submitBtn) {
+        console.error('필수 DOM 요소를 찾을 수 없습니다:', {
+            subscriptionForm: !!subscriptionForm,
+            emailInput: !!emailInput,
+            submitBtn: !!submitBtn
+        });
+    }
+
+    // 폼 이벤트 리스너 등록
+    if (subscriptionForm) {
+        subscriptionForm.addEventListener('submit', handleFormSubmit);
+    }
+
+    // 이메일 입력 이벤트 리스너
+    if (emailInput) {
+        emailInput.addEventListener('input', (e) => validateEmailInput(e.target));
+        emailInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                handleFormSubmit(e);
+            }
+        });
+    }
+
+    // CTA 폼 연동
+    initializeCTAForm();
+
     // 페이지 요소들을 순차적으로 나타나게 함
     const animatedElements = document.querySelectorAll('.hero-content, .preview-card, .stat-item');
     
