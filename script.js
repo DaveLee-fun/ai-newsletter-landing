@@ -24,24 +24,24 @@ function isValidEmail(email) {
 function toggleLoading(isLoading) {
     if (isLoading) {
         submitBtn.disabled = true;
-        btnText.style.display = 'none';
-        btnLoading.style.display = 'inline';
+        btnText.classList.add('hidden');
+        btnLoading.classList.remove('hidden');
     } else {
         submitBtn.disabled = false;
-        btnText.style.display = 'inline';
-        btnLoading.style.display = 'none';
+        btnText.classList.remove('hidden');
+        btnLoading.classList.add('hidden');
     }
 }
 
 // 성공 메시지 표시 함수
 function showSuccessMessage() {
-    subscriptionForm.style.display = 'none';
-    successMessage.style.display = 'block';
+    subscriptionForm.classList.add('hidden');
+    successMessage.classList.remove('hidden');
     
-    // 3초 후 페이지를 새로고침하여 다시 구독할 수 있도록 함
+    // 5초 후 페이지를 새로고침하여 다시 구독할 수 있도록 함
     setTimeout(() => {
-        subscriptionForm.style.display = 'block';
-        successMessage.style.display = 'none';
+        subscriptionForm.classList.remove('hidden');
+        successMessage.classList.add('hidden');
         emailInput.value = '';
     }, 5000);
 }
@@ -150,17 +150,43 @@ subscriptionForm.addEventListener('submit', async (e) => {
     }
 });
 
+// CTA 폼 연동
+const ctaEmail = document.getElementById('ctaEmail');
+const ctaSubmit = document.getElementById('ctaSubmit');
+
+if (ctaEmail && ctaSubmit) {
+    ctaSubmit.addEventListener('click', () => {
+        const email = ctaEmail.value.trim();
+        if (email) {
+            emailInput.value = email;
+            // 메인 폼으로 스크롤
+            subscriptionForm.scrollIntoView({ behavior: 'smooth' });
+            // 메인 폼의 이메일 입력 필드에 포커스
+            setTimeout(() => {
+                emailInput.focus();
+            }, 500);
+        }
+    });
+}
+
 // 실시간 이메일 입력 검증
-emailInput.addEventListener('input', (e) => {
-    const email = e.target.value.trim();
+function validateEmailInput(input) {
+    const email = input.value.trim();
     const isValid = isValidEmail(email);
     
     if (email && !isValid) {
-        emailInput.style.borderColor = '#ef4444';
+        input.classList.add('border-red-500');
+        input.classList.remove('border-gray-300', 'focus:border-blue-500');
     } else {
-        emailInput.style.borderColor = '#e2e8f0';
+        input.classList.remove('border-red-500');
+        input.classList.add('border-gray-300');
     }
-});
+}
+
+emailInput.addEventListener('input', (e) => validateEmailInput(e.target));
+if (ctaEmail) {
+    ctaEmail.addEventListener('input', (e) => validateEmailInput(e.target));
+}
 
 // 엔터 키 이벤트 리스너
 emailInput.addEventListener('keypress', (e) => {
